@@ -89,6 +89,16 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             del self.consine_sim_model
 
     # ************************ slot functions ************************ #
+    def slot_select_video(self):        
+        # 设置基础路径
+        current_file_path = os.path.abspath(os.path.dirname(__file__))
+        project_base_path = os.path.abspath(os.path.join(current_file_path, "../data"))
+        # print(project_base_path)
+        # 打开文件选择对话框
+        static_database_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
+        if static_database_file_path:
+            self.lineEdit_select_dataset.setText(static_database_file_path)  # 设置选择的文件路径到 QLineEdit
+
     def slot_select_dataset(self):        
         # 设置基础路径
         current_file_path = os.path.abspath(os.path.dirname(__file__))
