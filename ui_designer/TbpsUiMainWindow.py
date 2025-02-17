@@ -14,10 +14,12 @@ sys.path.append(project_base_path)
 
 from deploy.deploy_tbps import tokenize, transfer_pic, net
 from deploy.simple_tokenizer import SimpleTokenizer
+from deploy.deploy_detection import detection_net
 from config import DEVICE_IS_ATLAS
 
 import json
 import numpy as np
+import cv2 as cv
 from datetime import datetime
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtGui import QImage, QPixmap
@@ -38,11 +40,13 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             self.tokenizer = SimpleTokenizer(bpe_path)
             self.text_encoder = net(os.path.join(project_base_path, "deploy/model/xsmall_text_encode_310B4.om")) 
             self.consine_sim_model = net(os.path.join(project_base_path, "deploy/model/similarity_310B4.om")) 
+            self.detection_model = detection_net(os.path.join(project_base_path, "deploy/model/yolov4_bs1.om"))  # 行人检测模型
         else:
             self.image_encoder = None
             self.tokenizer = None
             self.text_encoder = None
             self.consine_sim_model = None
+            self.detection_model = None
 
         # 静态检索相关变量
         self.static_database_file_path = ""
@@ -59,12 +63,10 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.dynamic_image_features = None
         
         # 显示相关变量
-        self.show_result_frame_list = [self.frame_show_result1, self.frame_show_result2, self.frame_show_result3, self.frame_show_result4, self.frame_show_result5, 
-                                        self.frame_show_result6, self.frame_show_result7, self.frame_show_result8, self.frame_show_result9, self.frame_show_result10]
-        self.show_images_label_list = [self.label_show_img1, self.label_show_img2, self.label_show_img3, self.label_show_img4, self.label_show_img5,
-                                          self.label_show_img6, self.label_show_img7, self.label_show_img8, self.label_show_img9, self.label_show_img10]
-        self.show_sim_label_list = [self.label_show_sim1, self.label_show_sim2, self.label_show_sim3, self.label_show_sim4, self.label_show_sim5,
-                                    self.label_show_sim6, self.label_show_sim7, self.label_show_sim8, self.label_show_sim9, self.label_show_sim10]
+        self.show_result_frame_list = [self.frame_show_result1, self.frame_show_result2, self.frame_show_result3, self.frame_show_result4, self.frame_show_result5]
+        self.show_images_label_list = [self.label_show_img1, self.label_show_img2, self.label_show_img3, self.label_show_img4, self.label_show_img5]
+        self.show_sim_label_list = [self.label_show_sim1, self.label_show_sim2, self.label_show_sim3, self.label_show_sim4, self.label_show_sim5]
+        self.show_video = self.label_show_video
 
         # 存储检索结果相关变量
         self.current_search_json_result = {}
@@ -87,12 +89,40 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             del self.text_encoder
         if self.consine_sim_model is not None:
             del self.consine_sim_model
+        if self.detection_model is not None:
+            del self.detection_model
 
     # ************************ slot functions ************************ #
     def slot_select_video(self):        
         # 设置基础路径
         current_file_path = os.path.abspath(os.path.dirname(__file__))
         project_base_path = os.path.abspath(os.path.join(current_file_path, "../data"))
+        # print(project_base_path)
+        # 打开文件选择对话框
+        static_database_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
+        if static_database_file_path:
+            self.lineEdit_select_video.setText(static_database_file_path)  # 设置选择的文件路径到 QLineEdit
+
+    def slot_detection_pedestrian(self):      
+        # 设置基础路径
+        current_file_path = os.path.abspath(os.path.dirname(__file__))
+        video_input_path = self.lineEdit_select_video.text()
+        video_output_path = os.path.abspath(os.path.join(current_file_path, "../video_out"))
+        cropped_img_path = os.path.abspath(os.path.join(current_file_path, "../cropped_imgs"))
+        if video_input_path is None:
+            # 提示选择视频
+            self.terminal_message("Please select video", is_error=True)
+            return False
+        if video_input_path.lower().endswith('.mp4') is False:
+            # 提示选择.mp4文件
+            self.terminal_message("Please select '*.mp4' file", is_error=True)
+            return False  
+        self.detection_pedestrian(video_input_path, video_output_path, cropped_img_path)
+
+    def slot_select_gt(self):        
+        # 设置基础路径
+        current_file_path = os.path.abspath(os.path.dirname(__file__))
+        project_base_path = os.path.abspath(os.path.join(current_file_path, "../cropped_imgs"))
         # print(project_base_path)
         # 打开文件选择对话框
         static_database_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
@@ -274,6 +304,61 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.show_search_result_abstract(self.current_search_json_result)
 
     # ************************ deploy functions ************************ #
+    def detection_pedestrian(self, video_input_path, video_output_path, cropped_img_path):
+        frame_count = 0
+        #open video
+        video_path = video_input_path
+        print("open video: ", video_path)
+        cap = cv.VideoCapture(video_path)
+        fps = cap.get(cv.CAP_PROP_FPS)
+        Width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
+        Height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+
+        #create output directory
+        if not os.path.exists(video_output_path):
+            os.mkdir(video_output_path)
+        output_Video = os.path.basename(video_path)
+        output_Video = os.path.join(video_output_path, output_Video)
+
+        fourcc = cv.VideoWriter_fourcc(*'mp4v')  # DIVX, XVID, MJPG, X264, WMV1, WMV2
+        outVideo = cv.VideoWriter(output_Video, fourcc, fps, (Width, Height))
+
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (0, 255, 255), (255, 0, 255), (255, 255, 0)]
+        # Initialize model
+        dection_net = detection_net(self.detection_model)
+
+        # Read until video is completed
+        while (cap.isOpened()):
+            ret, frame = cap.read()
+            if ret == True:
+                #preprocess
+                data, orig = dection_net.preprocess(frame)
+                #Send into model inference
+                result_list = dection_net.model.execute([data,])
+                #Process inference results
+                result_return = dection_net.post_process(frame_count, result_list, orig, cropped_img_path)
+                print("result = ", result_return)
+
+                for i in range(len(result_return['detection_classes'])):
+                    box = result_return['detection_boxes'][i]
+                    class_name = result_return['detection_classes'][i]
+
+                    cv.rectangle(frame, (int(box[1]), int(box[0])), (int(box[3]), int(box[2])), colors[i % 6])
+                    p3 = (max(int(box[1]), 15), max(int(box[0]), 15))
+                    out_label = class_name
+                    cv.putText(frame, out_label, p3, cv.FONT_ITALIC, 0.6, colors[i % 6], 1)
+
+                outVideo.write(frame)
+                print("FINISH PROCESSING FRAME: ", frame_count)
+                frame_count += 1
+                print('\n\n\n')
+            # Break the loop
+            else:
+                break
+        cap.release()
+        outVideo.release()
+        print("Execute end")
+
     def static_search(self, query_text):        
         # 1.读取静态数据库
         test_image_norm_features = np.load(self.static_database_file_path)
