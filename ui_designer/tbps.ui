@@ -315,7 +315,7 @@ p, li { white-space: pre-wrap; }
                     </widget>
                    </item>
                    <item>
-                    <widget class="QLineEdit" name="lineEdit_select_dataset">
+                    <widget class="QLineEdit" name="lineEdit_select_video">
                      <property name="styleSheet">
                       <string notr="true">background-color: rgb(249, 251, 255);</string>
                      </property>
@@ -343,31 +343,16 @@ p, li { white-space: pre-wrap; }
                     <widget class="QPushButton" name="pushButton_2">
                      <property name="maximumSize">
                       <size>
-                       <width>90</width>
+                       <width>130</width>
                        <height>16777215</height>
                       </size>
                      </property>
                      <property name="styleSheet">
-                      <string notr="true">background-color: rgb(171, 255, 227);</string>
+                      <string notr="true">background-color: rgb(128, 186, 169);
+font: 81 10pt &quot;Inter Display ExtraBold&quot;;</string>
                      </property>
                      <property name="text">
-                      <string>选择GT</string>
-                     </property>
-                    </widget>
-                   </item>
-                   <item>
-                    <widget class="QLineEdit" name="lineEdit">
-                     <property name="maximumSize">
-                      <size>
-                       <width>16777215</width>
-                       <height>16777215</height>
-                      </size>
-                     </property>
-                     <property name="layoutDirection">
-                      <enum>Qt::LeftToRight</enum>
-                     </property>
-                     <property name="styleSheet">
-                      <string notr="true">background-color: rgb(249, 251, 255);</string>
+                      <string>行人图像生成</string>
                      </property>
                     </widget>
                    </item>
@@ -581,44 +566,6 @@ p, li { white-space: pre-wrap; }
                       </property>
                       <property name="text">
                        <string/>
-                      </property>
-                     </widget>
-                     <widget class="QLabel" name="label_11">
-                      <property name="geometry">
-                       <rect>
-                        <x>40</x>
-                        <y>10</y>
-                        <width>26</width>
-                        <height>17</height>
-                       </rect>
-                      </property>
-                      <property name="minimumSize">
-                       <size>
-                        <width>26</width>
-                        <height>0</height>
-                       </size>
-                      </property>
-                      <property name="maximumSize">
-                       <size>
-                        <width>26</width>
-                        <height>24</height>
-                       </size>
-                      </property>
-                      <property name="font">
-                       <font>
-                        <pointsize>10</pointsize>
-                        <weight>75</weight>
-                        <bold>true</bold>
-                       </font>
-                      </property>
-                      <property name="styleSheet">
-                       <string notr="true">background-color: rgb(226, 250, 255);</string>
-                      </property>
-                      <property name="text">
-                       <string>GT</string>
-                      </property>
-                      <property name="alignment">
-                       <set>Qt::AlignCenter</set>
                       </property>
                      </widget>
                      <widget class="QPushButton" name="pushButton_4">
@@ -1595,7 +1542,7 @@ p, li { white-space: pre-wrap; }
               </widget>
              </item>
              <item row="0" column="0">
-              <widget class="QWidget" name="" native="true">
+              <widget class="QWidget" name="widget" native="true">
                <property name="minimumSize">
                 <size>
                  <width>0</width>
@@ -1608,158 +1555,49 @@ p, li { white-space: pre-wrap; }
                  <height>40</height>
                 </size>
                </property>
-               <widget class="QPushButton" name="pushButton_5">
-                <property name="geometry">
-                 <rect>
-                  <x>679</x>
-                  <y>11</y>
-                  <width>60</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>60</width>
-                  <height>24</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>60</width>
-                  <height>24</height>
-                 </size>
-                </property>
-                <property name="font">
-                 <font>
-                  <pointsize>8</pointsize>
-                  <weight>75</weight>
-                  <bold>true</bold>
-                 </font>
-                </property>
-                <property name="styleSheet">
-                 <string notr="true">background-color: rgb(207, 253, 255);</string>
-                </property>
-                <property name="text">
-                 <string>保存结果</string>
-                </property>
-               </widget>
-               <widget class="QPushButton" name="pushButton_8">
-                <property name="geometry">
-                 <rect>
-                  <x>612</x>
-                  <y>11</y>
-                  <width>60</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>60</width>
-                  <height>24</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>60</width>
-                  <height>24</height>
-                 </size>
-                </property>
-                <property name="font">
-                 <font>
-                  <pointsize>8</pointsize>
-                  <weight>75</weight>
-                  <bold>true</bold>
-                 </font>
-                </property>
-                <property name="styleSheet">
-                 <string notr="true">background-color: rgb(207, 253, 255);</string>
-                </property>
-                <property name="text">
-                 <string>历史检索</string>
-                </property>
-               </widget>
-               <widget class="QPushButton" name="pushButton_7">
-                <property name="geometry">
-                 <rect>
-                  <x>545</x>
-                  <y>11</y>
-                  <width>60</width>
-                  <height>24</height>
-                 </rect>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>60</width>
-                  <height>24</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>60</width>
-                  <height>24</height>
-                 </size>
-                </property>
-                <property name="font">
-                 <font>
-                  <pointsize>8</pointsize>
-                  <weight>75</weight>
-                  <bold>true</bold>
-                 </font>
-                </property>
-                <property name="styleSheet">
-                 <string notr="true">background-color: rgb(207, 253, 255);</string>
-                </property>
-                <property name="text">
-                 <string>当前检索</string>
-                </property>
-               </widget>
-               <widget class="QLabel" name="label_17">
-                <property name="geometry">
-                 <rect>
-                  <x>340</x>
-                  <y>0</y>
-                  <width>96</width>
-                  <height>35</height>
-                 </rect>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>0</width>
-                  <height>35</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>16777215</width>
-                  <height>35</height>
-                 </size>
-                </property>
-                <property name="font">
-                 <font>
-                  <pointsize>14</pointsize>
-                  <weight>75</weight>
-                  <bold>true</bold>
-                 </font>
-                </property>
-                <property name="toolTip">
-                 <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p align=&quot;center&quot;&gt;&lt;br/&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                </property>
-                <property name="layoutDirection">
-                 <enum>Qt::RightToLeft</enum>
-                </property>
-                <property name="autoFillBackground">
-                 <bool>false</bool>
-                </property>
-                <property name="frameShape">
-                 <enum>QFrame::NoFrame</enum>
-                </property>
-                <property name="text">
-                 <string>结果展示</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignCenter</set>
-                </property>
-               </widget>
+               <layout class="QHBoxLayout" name="horizontalLayout_5">
+                <item>
+                 <widget class="QLabel" name="label_17">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>35</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>35</height>
+                   </size>
+                  </property>
+                  <property name="font">
+                   <font>
+                    <pointsize>14</pointsize>
+                    <weight>75</weight>
+                    <bold>true</bold>
+                   </font>
+                  </property>
+                  <property name="toolTip">
+                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p align=&quot;center&quot;&gt;&lt;br/&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  </property>
+                  <property name="layoutDirection">
+                   <enum>Qt::RightToLeft</enum>
+                  </property>
+                  <property name="autoFillBackground">
+                   <bool>false</bool>
+                  </property>
+                  <property name="frameShape">
+                   <enum>QFrame::NoFrame</enum>
+                  </property>
+                  <property name="text">
+                   <string>结果展示</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
               </widget>
              </item>
             </layout>
@@ -1918,11 +1756,11 @@ p, li { white-space: pre-wrap; }
    <sender>pushButton_2</sender>
    <signal>clicked()</signal>
    <receiver>MainWindow</receiver>
-   <slot>slot_select_video()</slot>
+   <slot>slot_detection_pedestrian()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>144</x>
-     <y>362</y>
+     <x>269</x>
+     <y>364</y>
     </hint>
     <hint type="destinationlabel">
      <x>29</x>
@@ -1955,5 +1793,6 @@ p, li { white-space: pre-wrap; }
   <slot>slot_load_history_result()</slot>
   <slot>slot_show_current_result()</slot>
   <slot>slot_select_video()</slot>
+  <slot>slot_detection_pedestrian()</slot>
  </slots>
 </ui>
