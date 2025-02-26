@@ -6,6 +6,10 @@ LastEditTime: 2025-01-11 11:24:27
 Description: tbps ui main window
 '''
 import os
+os.environ["QT_GSTREAMER_PLAYBIN_AUDIOSRC"] = "autoaudiosrc"
+os.environ["QT_GSTREAMER_PLAYBIN_VIDEOSRC"] = "autovideosrc"
+os.environ["QT_GSTREAMER_PLAYBIN"] = "ffmpeg"
+import shutil
 import sys
 # 通过当前文件目录的相对路径设置工程的根目录
 current_file_path = os.path.abspath(os.path.dirname(__file__))
@@ -17,15 +21,15 @@ from deploy.simple_tokenizer import SimpleTokenizer
 from deploy.deploy_detection import detection_net
 from config import DEVICE_IS_ATLAS
 
-import json
 import numpy as np
 import cv2 as cv
-from datetime import datetime
 from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import QMainWindow,QApplication,QWidget,QGraphicsScene
+from PyQt5.QtCore import QUrl, QTimer
+from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtWidgets import QMainWindow,QFileDialog, QLabel, QApplication
+from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from .Ui_tbps import Ui_MainWindow 
-
+from acllite.acllite_model import AclLiteModel
 
 class MyMainWindow(QMainWindow,Ui_MainWindow):
     def __init__(self,parent =None):
@@ -40,13 +44,18 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             self.tokenizer = SimpleTokenizer(bpe_path)
             self.text_encoder = net(os.path.join(project_base_path, "deploy/model/xsmall_text_encode_310B4.om")) 
             self.consine_sim_model = net(os.path.join(project_base_path, "deploy/model/similarity_310B4.om")) 
-            self.detection_model = detection_net(os.path.join(project_base_path, "deploy/model/yolov4_bs1.om"))  # 行人检测模型
+            self.detection_model = AclLiteModel(os.path.join(project_base_path, "deploy/model/yolov4_bs1.om"))  # 行人检测模型
+            self.detection_net = detection_net()
         else:
             self.image_encoder = None
             self.tokenizer = None
             self.text_encoder = None
             self.consine_sim_model = None
             self.detection_model = None
+            self.detection_net = None
+
+        # GT显示相关变量
+        self.gt_image_path = ""
 
         # 静态检索相关变量
         self.static_database_file_path = ""
@@ -66,16 +75,20 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.show_result_frame_list = [self.frame_show_result1, self.frame_show_result2, self.frame_show_result3, self.frame_show_result4, self.frame_show_result5]
         self.show_images_label_list = [self.label_show_img1, self.label_show_img2, self.label_show_img3, self.label_show_img4, self.label_show_img5]
         self.show_sim_label_list = [self.label_show_sim1, self.label_show_sim2, self.label_show_sim3, self.label_show_sim4, self.label_show_sim5]
-        self.show_video = self.label_show_video
+
+        # 获取 widget_show_video
+        self.show_video = self.label_7
+        # 视频路径和视频捕捉对象
+        self.video_path = ""
+        self.cap = None
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_video_frame)
+        self.is_playing = False
+        self.current_frame = None
 
         # 存储检索结果相关变量
         self.current_search_json_result = {}
         self.history_search_json_result = {}
-
-        # 初始化 GT 显示
-        search_style = self.comboBox_search_style.currentText() 
-        self.show_gt_and_pid(search_style)
-
 
     def closeEvent(self, event):
         self.release_resources()
@@ -91,9 +104,12 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             del self.consine_sim_model
         if self.detection_model is not None:
             del self.detection_model
+        if self.detection_net is not None:
+            del self.detection_net
 
     # ************************ slot functions ************************ #
     def slot_select_video(self):        
+        self.terminal_message("Please select video path")
         # 设置基础路径
         current_file_path = os.path.abspath(os.path.dirname(__file__))
         project_base_path = os.path.abspath(os.path.join(current_file_path, "../data"))
@@ -111,11 +127,11 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         cropped_img_path = os.path.abspath(os.path.join(current_file_path, "../cropped_imgs"))
         if video_input_path is None:
             # 提示选择视频
-            self.terminal_message("Please select video", is_error=True)
+            self.terminal_message("Please select video!!", is_error=True)
             return False
         if video_input_path.lower().endswith('.mp4') is False:
             # 提示选择.mp4文件
-            self.terminal_message("Please select '*.mp4' file", is_error=True)
+            self.terminal_message("Please select '*.mp4' file!!", is_error=True)
             return False  
         self.detection_pedestrian(video_input_path, video_output_path, cropped_img_path)
 
@@ -125,65 +141,12 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         project_base_path = os.path.abspath(os.path.join(current_file_path, "../cropped_imgs"))
         # print(project_base_path)
         # 打开文件选择对话框
-        static_database_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
-        if static_database_file_path:
-            self.lineEdit_select_dataset.setText(static_database_file_path)  # 设置选择的文件路径到 QLineEdit
-
-    def slot_select_dataset(self):        
-        # 设置基础路径
-        current_file_path = os.path.abspath(os.path.dirname(__file__))
-        project_base_path = os.path.abspath(os.path.join(current_file_path, "../data/static_database"))
-        # print(project_base_path)
-        # 打开文件选择对话框
-        static_database_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
-        if static_database_file_path:
-            self.lineEdit_select_dataset.setText(static_database_file_path)  # 设置选择的文件路径到 QLineEdit
-
-    def slot_set_gt(self):
-        # 静态检索的 GT 设置
-        set_gt_flag = self.comboBox_GT.currentText()
-        current_file_path = os.path.abspath(os.path.dirname(__file__))
-        if set_gt_flag == "无 GT":            
-            self.lineEdit_GT.setText("")            
-        elif set_gt_flag == "加载 GT":
-            # 设置基础路径
-            current_file_path = os.path.abspath(os.path.dirname(__file__))
-            project_base_path = os.path.abspath(os.path.join(current_file_path, "../data/static_database"))            
-            # 打开文件选择对话框
-            gt_image_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
-            if gt_image_path:
-                self.lineEdit_GT.setText(gt_image_path)  # 设置选择的文件路径到 QLineEdit
-                self.static_gt_image_path = gt_image_path
-        # 获取检索 style
-        search_style = self.comboBox_search_style.currentText() 
-        self.show_gt_and_pid(search_style)
-        
-    def slot_set_pid(self):
-        # 静态检索的 PID 设置
-        set_pid_flag = self.comboBox_PID.currentText()
-        if set_pid_flag == "无 PID":
-            self.lineEdit_PID.setText("") 
-            self.set_pid = "none"
-        elif set_pid_flag == "加载 PID":
-            # 使用弹出窗口设置 PID
-            text, ok = QtWidgets.QInputDialog.getText(self, '设置 PID', '请输入 PID:')
-            if ok:
-                self.lineEdit_PID.setText(text) 
-                self.set_pid = text           
-
-    def slot_select_path(self):
-        # 设置基础路径
-        current_file_path = os.path.abspath(os.path.dirname(__file__))
-        project_base_path = os.path.abspath(os.path.join(current_file_path, "../data/dynamic_database"))
-        # print(project_base_path)
-        # 打开文件选择对话框
-        dynamic_database_path = QtWidgets.QFileDialog.getExistingDirectory(self, '选择文件夹', project_base_path)
-        if dynamic_database_path:
-            self.lineEdit_select_path.setText(dynamic_database_path)
-
-    def slot_set_search_style(self):
-        search_style = self.comboBox_search_style.currentText()
-        self.show_gt_and_pid(search_style)
+        gt_imgs_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
+        if gt_imgs_path:
+            self.gt_image_path =  gt_imgs_path
+            self.show_gt_imgs(gt_imgs_path)
+        else:
+            self.terminal_message("该图像路径不存在！！")
 
     def slot_search(self):
         self.terminal_message("=========== Start Search ===========")
@@ -192,152 +155,152 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         if enter_text_description == "":
             self.terminal_message("Please enter text description", is_error=True)
             return
-        # 获取检索 style
-        search_style = self.comboBox_search_style.currentText()        
-        if search_style == "静态检索":
-            self.terminal_message("Search style: Static Search")            
-            self.terminal_message("Query:")
-            self.terminal_message(enter_text_description)
-            # 检查静态数据库及图像索引是否完备
-            if self.check_static_database():
-                # 清空结果显示，等待结果
-                self.clean_show_result_before_search()
-                # 静态检索
-                result_sim, result_pids, result_image_paths, dataset_base_path = self.static_search(enter_text_description)                
-                # 汇总检索结果
-                self.catch_json_result(search_style, result_sim, result_pids, result_image_paths, dataset_base_path)
-                # 展示 Top10 结果
-                self.show_search_result(self.current_search_json_result)
-                # 展示检索结果概要
-                self.show_search_result_abstract(self.current_search_json_result)
-            else:
-                self.terminal_message("ERROR: Please check static database!", is_error=True)
-                return
-        elif search_style == "动态检索":
-            self.terminal_message("Search style: Dynamic Search")            
-            self.terminal_message("Query:")
-            self.terminal_message(enter_text_description)            
-            if self.get_dynamic_database():
-                # 清空结果显示，等待结果
-                self.clean_show_result_before_search()
-                # 动态检索
-                result_sim, result_image_ids, result_image_paths, dataset_base_path = self.dynamic_search(enter_text_description)                
-                # 汇总检索结果
-                self.catch_json_result(search_style, result_sim, result_image_ids, result_image_paths, dataset_base_path)
-                # 展示 Top10 结果
-                self.show_search_result(self.current_search_json_result)
-                # 展示检索结果概要
-                self.show_search_result_abstract(self.current_search_json_result)
-            else:
-                self.terminal_message("ERROR: Dynamic data path dose not contain an image file!", is_error=True)
-                return
+        self.terminal_message("Search style: Dynamic Search")            
+        self.terminal_message("Query:")
+        self.terminal_message(enter_text_description)            
+        if self.get_dynamic_database():
+            # 清空结果显示，等待结果
+            self.clean_show_result_before_search()
+            # 动态检索
+            result_sim, result_image_ids, result_image_paths, dataset_base_path = self.dynamic_search(enter_text_description)                
+            # 汇总检索结果
+            self.catch_json_result(result_sim, result_image_ids, result_image_paths, dataset_base_path)
+            # 展示 Top5 结果
+            self.show_search_result(self.current_search_json_result)
+            # 展示检索结果概要
+            self.show_search_result_abstract(self.current_search_json_result)
         else:
-            self.terminal_message("Please select search style", is_error=True)
+            self.terminal_message("ERROR: Dynamic data path dose not contain an image file!", is_error=True)
             return
-
-    def slot_save_dataset(self):
-        save_npy_name = self.lineEdit_dynamic_to_static_name.text()
-        if save_npy_name.endswith('.npy') is False:
-            self.terminal_message("Please enter a valid file name, such as '*.npy'.")
-            return
-        # 保存动态图像特征
-        save_feature_path = os.path.join(self.dynamic_database_base_path, save_npy_name)        
-        np.save(save_feature_path, self.dynamic_image_features)
-        # 保存图像对应路径
-        save_image_path = save_feature_path.replace('.npy', '.json')
-        json_data = {"img_paths": self.dynamic_database_image_files}
-        json.dump(json_data, open(save_image_path, 'w'), indent=4)
-        self.terminal_message("Save dynamic dataset successfully!")
-
+        
     def slot_clean_terminal_output(self):
         self.textBrowser_terminal_output.clear()
 
-    def slot_save_result(self):
-        if not self.current_search_json_result:
-            self.terminal_message("Please search first!", is_error=True)
-            return        
-        # 设置基础路径
-        current_file_path = os.path.abspath(os.path.dirname(__file__))
-        project_base_path = os.path.abspath(os.path.join(current_file_path, "../data/search_result"))        
-        # 使用弹框设置保存路径
-        # 获取当前时间并格式化为字符串
-        current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
-        default_filename = os.path.join(project_base_path, f"{current_time}.json")
-                
-        options = QtWidgets.QFileDialog.Options()
-        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, '保存文件', default_filename, 'JSON Files (*.json)', options=options)               
-        if save_path:
-            json.dump(self.current_search_json_result, open(save_path, 'w'), indent=4)
-            self.terminal_message("Save search result successfully!")
-
-    def slot_load_history_result(self):
-        # 设置基础路径
-        current_file_path = os.path.abspath(os.path.dirname(__file__))
-        project_base_path = os.path.abspath(os.path.join(current_file_path, "../data/search_result"))        
+    def slot_open_video_file(self):
         # 打开文件选择对话框
-        history_result_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path, 'JSON Files (*.json)')
-        if history_result_path:
-            search_json_result = json.load(open(history_result_path, 'r'))
-            # 检查结果是否完备
-            if "search_style" not in search_json_result or \
-                "query_text" not in search_json_result or \
-                "similarity" not in search_json_result or \
-                "result_imgids_or_pids" not in search_json_result or \
-                "image_paths" not in search_json_result or \
-                "dataset_base_path" not in search_json_result or \
-                "gt_image_path" not in search_json_result or \
-                "set_pid" not in search_json_result:
+        # video_path, _ = QFileDialog.getOpenFileName(self, "选择视频文件", "", "视频文件 (*.mp4 *.avi *.mkv)")
+        current_file_path = os.path.abspath(os.path.dirname(__file__))
+        project_base_path = os.path.abspath(os.path.join(current_file_path, "../video_out"))
+        video_path, _ = QFileDialog.getOpenFileName(None, '选择文件', project_base_path)
 
-                self.terminal_message("ERROR: Please check history search result!", is_error=True)
-                return            
-            self.history_search_json_result = search_json_result
-            self.terminal_message("Load history search result successfully!")
-        # 展示历史检索结果
-        self.show_search_result(self.history_search_json_result)
-        self.show_search_result_abstract(self.history_search_json_result)
+        if video_path:
+            self.video_path = video_path
+            self.cap = cv.VideoCapture(self.video_path)
+            if self.cap.isOpened():
+                # 获取并显示第一帧
+                ret, frame = self.cap.read()
+                if ret:
+                    self.current_frame = frame
+                    self.show_first_frame(frame)
 
-    def slot_show_current_result(self):
-        if self.current_search_json_result == {}:
-            self.terminal_message("Please search first!", is_error=True)
-            return
-        self.show_search_result(self.current_search_json_result)
-        self.show_search_result_abstract(self.current_search_json_result)
+    def show_first_frame(self, frame):
+        # 将帧转换为QImage格式
+        frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        h, w, ch = frame_rgb.shape
+        qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
+
+        # 将第一帧显示在界面上，并且缩小显示，保持比例
+        pixmap = QPixmap.fromImage(qimage)
+
+        # 获取 QLabel 当前的尺寸，计算缩放比例
+        label_width = self.show_video.width()
+        label_height = self.show_video.height()
+        
+        # 计算缩放比例
+        scale_factor = min(label_width / w, label_height / h)
+
+        # 使用缩放比例调整图片大小
+        scaled_pixmap = pixmap.scaled(w * scale_factor, h * scale_factor)
+
+        # 将缩放后的图片显示到界面
+        self.show_video.setPixmap(scaled_pixmap)
+
+    def slot_play_video(self):
+        if self.cap and self.cap.isOpened():
+            self.is_playing = True
+            self.timer.start(30)  # 设置定时器每30ms更新一次画面（30帧/秒）
+
+    def slot_pause_video(self):
+        self.is_playing = False
+        self.timer.stop()  # 停止定时器，暂停视频播放
+
+    def update_video_frame(self):
+        if self.is_playing and self.cap:
+            ret, frame = self.cap.read()
+            if ret:
+                # 将当前帧转换为QImage并更新显示
+                frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+                h, w, ch = frame_rgb.shape
+                qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
+
+                # 将当前帧显示到界面上，并且缩小显示，保持比例
+                pixmap = QPixmap.fromImage(qimage)
+
+                # 获取 QLabel 当前的尺寸，计算缩放比例
+                label_width = self.show_video.width()
+                label_height = self.show_video.height()
+
+                # 计算缩放比例
+                scale_factor = min(label_width / w, label_height / h)
+
+                # 使用缩放比例调整图片大小
+                scaled_pixmap = pixmap.scaled(w * scale_factor, h * scale_factor)
+
+                # 将缩放后的图片显示到界面
+                self.show_video.setPixmap(scaled_pixmap)
+            else:
+                self.timer.stop()  # 视频播放完毕，停止定时器
+
 
     # ************************ deploy functions ************************ #
     def detection_pedestrian(self, video_input_path, video_output_path, cropped_img_path):
+        self.terminal_message("=========== Start Detection ===========")
         frame_count = 0
-        #open video
+        # 打开视频
         video_path = video_input_path
-        print("open video: ", video_path)
+        self.terminal_message("open video: ")
+        self.terminal_message(video_path)
         cap = cv.VideoCapture(video_path)
         fps = cap.get(cv.CAP_PROP_FPS)
         Width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
         Height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
 
-        #create output directory
+        # 获取总帧数
+        total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+        total_bar = total_frames + 10  # 进度条的总进度，增加10表示包括后续其他步骤
+
+        # 删除输出目录
+        if os.path.exists(video_output_path):
+            shutil.rmtree(video_output_path)
+        # 删除裁剪图像目录
+        if os.path.exists(cropped_img_path):
+            shutil.rmtree(cropped_img_path)
+
+        # 创建输出目录
         if not os.path.exists(video_output_path):
             os.mkdir(video_output_path)
+        # 创建裁剪图像目录
+        if not os.path.exists(cropped_img_path):
+            os.mkdir(cropped_img_path)
         output_Video = os.path.basename(video_path)
         output_Video = os.path.join(video_output_path, output_Video)
 
-        fourcc = cv.VideoWriter_fourcc(*'mp4v')  # DIVX, XVID, MJPG, X264, WMV1, WMV2
+        fourcc = cv.VideoWriter_fourcc(*'mp4v')  # 视频编码方式
         outVideo = cv.VideoWriter(output_Video, fourcc, fps, (Width, Height))
 
         colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (0, 255, 255), (255, 0, 255), (255, 255, 0)]
-        # Initialize model
-        dection_net = detection_net(self.detection_model)
 
-        # Read until video is completed
+        # 读取视频直到完成
         while (cap.isOpened()):
             ret, frame = cap.read()
             if ret == True:
-                #preprocess
-                data, orig = dection_net.preprocess(frame)
-                #Send into model inference
-                result_list = dection_net.model.execute([data,])
-                #Process inference results
-                result_return = dection_net.post_process(frame_count, result_list, orig, cropped_img_path)
-                print("result = ", result_return)
+                # 预处理
+                data, orig = self.detection_net.preprocess(frame)
+                # 发送到模型推理
+                result_list = self.detection_model.execute([data,])
+                # 处理推理结果
+                result_return = self.detection_net.post_process(frame_count, result_list, orig, cropped_img_path)
+                # print("result = ", result_return)
 
                 for i in range(len(result_return['detection_classes'])):
                     box = result_return['detection_boxes'][i]
@@ -349,79 +312,22 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
                     cv.putText(frame, out_label, p3, cv.FONT_ITALIC, 0.6, colors[i % 6], 1)
 
                 outVideo.write(frame)
-                print("FINISH PROCESSING FRAME: ", frame_count)
+                # print("FINISH PROCESSING FRAME: ", frame_count)
+                
+                # 更新进度条
+                self.update_progress_bar_2(frame_count, total_bar)
+
                 frame_count += 1
-                print('\n\n\n')
-            # Break the loop
+                # print('\n\n\n')
             else:
                 break
+        
+        self.update_progress_bar_2(total_bar, total_bar)
+
         cap.release()
         outVideo.release()
-        print("Execute end")
+        self.terminal_message("Pedestrains Detection Finished")
 
-    def static_search(self, query_text):        
-        # 1.读取静态数据库
-        test_image_norm_features = np.load(self.static_database_file_path)
-        N = test_image_norm_features.shape[0]        
-        with open(self.static_database_json_file_path, 'r') as f:
-            static_database_json = json.load(f)
-        # 获取数据集 base 目录
-        dataset_base_path = os.path.dirname(self.static_database_file_path)
-        self.update_progress_bar(1, 5)
-        if self.is_atlas:
-            # 2.获取文本特征
-            text = tokenize(query_text, tokenizer=self.tokenizer, text_length=77, truncate=True)
-            text = text.reshape((1, 77))
-            result = self.text_encoder.text_forward(text) # npu 计算     
-            text_feature = result[text.argmax(axis=-1), :] # 获取最大值的索引对应的特征，即为文本的 cls 特征        
-            self.update_progress_bar(2, 5)
-            # 3.计算图像数据库特征与文本特征的相似度
-            similarity, index = [], []
-            loops = N // 1024
-            for i in range(loops):
-                # 准备图像数据
-                start_index = i * 1024 
-                end_index = min((i + 1) * 1024, N)
-                images = test_image_norm_features[start_index:end_index]
-                # DEBUG 文本数据
-                # text_feature = images[0, :]
-                # 准备start_index数据
-                start_index = np.array([start_index], dtype=np.int64) 
-                inputs = [images, text_feature, start_index]
-                result = self.consine_sim_model.similarity_forward(inputs) # npu 计算  
-                similarity.append(result[0])
-                index.append(result[1])        
-            # 处理不整除的情况
-            if N % 1024 != 0:
-                start_index = loops * 1024
-                images = np.zeros((1024, 512), dtype=np.float32)
-                images[0 : N - start_index] = test_image_norm_features[start_index:]
-                start_index = np.array([start_index], dtype=np.int64)
-                inputs = [images, text_feature, start_index]
-                result = self.consine_sim_model.similarity_forward(inputs)
-                similarity.append(result[0])
-                index.append(result[1])
-            self.update_progress_bar(3, 5)
-            # 4.合并结果,并进行最终 TopK 操作    
-            similarity = np.concatenate(similarity, axis=1)
-            index = np.concatenate(index, axis=1)    
-            # 获取前 K 个最大值的索引
-            K = 10
-            sorted_indices = np.argsort(similarity, axis=1)[:, ::-1]
-            indices = sorted_indices[:, :K]
-            top10_values = np.take_along_axis(similarity, indices, axis=1).flatten().tolist()
-            top10_indices = np.take_along_axis(index, indices, axis=1).flatten().tolist()
-            self.update_progress_bar(4, 5)
-        else:
-            # DEBUG for development on x86
-            top10_values = np.random.rand(1, 10).flatten().tolist()
-            # top10_indices = np.random.randint(0, N, (1, 10)).flatten() 
-            top10_indices = np.array([1,1,1,2,3,4,5,6,7,8]).flatten().tolist()   
-        # 5. 返回 Top10 的相似度值和对应的图像路径
-        show_images_path =  [static_database_json['img_paths'][i] for i in top10_indices]
-        result_image_ids = [static_database_json['image_pids'][i] for i in top10_indices]
-        self.update_progress_bar(5, 5)
-        return top10_values, result_image_ids, show_images_path, dataset_base_path
 
     def dynamic_search(self, query_text):
         # 设置数据集路径
@@ -481,23 +387,25 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             similarity = np.concatenate(similarity, axis=1)
             index = np.concatenate(index, axis=1)    
             # 获取前 K 个最大值的索引
-            K = 10
+            K = 5
             sorted_indices = np.argsort(similarity, axis=1)[:, ::-1]
             indices = sorted_indices[:, :K]
-            top10_values = np.take_along_axis(similarity, indices, axis=1).flatten().tolist()
-            top10_indices = np.take_along_axis(index, indices, axis=1).flatten().tolist()
+            top5_values = np.take_along_axis(similarity, indices, axis=1).flatten().tolist()
+            top5_indices = np.take_along_axis(index, indices, axis=1).flatten().tolist()
         else:        
             # DEBUG for development on x86
             self.dynamic_image_features = np.random.randn(500, 512)
             N = self.dynamic_image_features.shape[0]
-            top10_values = np.random.rand(1, 10).flatten().tolist()
-            top10_indices = np.random.randint(0, N, (1, 10)).flatten().tolist()              
-        # 5. 返回 Top10 的相似度值和对应的图像路径
-        show_images_path =  [os.path.join(dataset_base_path, database_image_files[i]) for i in top10_indices]
+            top5_values = np.random.rand(1, 5).flatten().tolist()
+            top5_indices = np.random.randint(0, N, (1, 5)).flatten().tolist()              
+        # 5. 返回 Top5 的相似度值和对应的图像路径
+        show_images_path =  [os.path.join(dataset_base_path, database_image_files[i]) for i in top5_indices]
         # 6. 设置保存动态图像特征文件名称
-        self.lineEdit_dynamic_to_static_name.setText(f"{self.dynamic_dataset_folder_name}_test_data.npy")
+        # self.lineEdit_dynamic_to_static_name.setText(f"{self.dynamic_dataset_folder_name}_test_data.npy")
         self.update_progress_bar(total_bar, total_bar)
-        return top10_values, top10_indices, show_images_path, dataset_base_path
+        return top5_values, top5_indices, show_images_path, dataset_base_path
+
+
 
     # ************************ utils functions ************************ #
     def terminal_message(self, text, is_error=False):
@@ -507,28 +415,22 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             self.textBrowser_terminal_output.append(f"<span style='color:black;'>{text}</span>")
         self.textBrowser_terminal_output.moveCursor(self.textBrowser_terminal_output.textCursor().End)
 
-    def check_static_database(self):
-        static_database_file_path = self.lineEdit_select_dataset.text()
-        if static_database_file_path is None:
+    # 显示 gt
+    def show_gt_imgs(self, gt_imgs_path):
+        if os.path.exists(gt_imgs_path) is False:
             # 提示选择数据集
-            self.terminal_message("Please select dataset", is_error=True)
+            self.terminal_message("Please select true gt data path", is_error=True)
             return False
-        if static_database_file_path.lower().endswith('.npy') is False:
-            # 提示选择.npy文件
-            self.terminal_message("Please select '*.npy' file", is_error=True)
-            return False         
-        static_database_json_file_path = static_database_file_path.replace('.npy', '.json')
-        if os.path.exists(static_database_json_file_path) is False:
-            # 提示生成json文件
-            self.terminal_message("Please generate json file for dataset", is_error=True)
-            return False
-        # 设置静态检索相关变量
-        self.static_database_file_path = static_database_file_path
-        self.static_database_json_file_path = static_database_json_file_path
-        return True
+        pixmap = QPixmap(gt_imgs_path)
+        resized_pixmap = pixmap.scaled(90, 120)                     
+        self.label_show_gt.setPixmap(resized_pixmap) 
+        self.label_show_gt.setScaledContents(True)                                   
+        self.label_show_gt.setAlignment(QtCore.Qt.AlignCenter) 
 
     def get_dynamic_database(self):
-        dynamic_database_path = self.lineEdit_select_path.text()
+        current_file_path = os.path.abspath(os.path.dirname(__file__))
+        dynamic_database_path = os.path.abspath(os.path.join(current_file_path, "../cropped_imgs"))
+        # dynamic_database_path = self.lineEdit_select_path.text()
         if os.path.exists(dynamic_database_path) is False and os.path.isdir(dynamic_database_path) is False:
             # 提示选择数据集
             self.terminal_message("Please select true and exit data path", is_error=True)
@@ -554,73 +456,36 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         if show_search_json_result == {}:
             return
         # 获取检索结果
-        search_style = show_search_json_result["search_style"]
         result_sim = show_search_json_result["similarity"]
         result_image_paths = show_search_json_result["image_paths"]
         dataset_base_path = show_search_json_result["dataset_base_path"]
         result_pids = show_search_json_result["result_imgids_or_pids"]
         pids = show_search_json_result["set_pid"]           
-        # 展示 Top10 图像及相似度
-        for i in range(10):
+        # 展示 Top5 图像及相似度
+        for i in range(5):
             image_path = os.path.join(dataset_base_path, result_image_paths[i])
             sim = result_sim[i] 
             pixmap = QPixmap(image_path)            
-            resized_pixmap = pixmap.scaled(140, 180) 
+            resized_pixmap = pixmap.scaled(140, 220) 
             self.show_images_label_list[i].setPixmap(resized_pixmap)
             self.show_sim_label_list[i].setText(f"匹配度: {sim:.3f}")            
             self.show_images_label_list[i].setAlignment(QtCore.Qt.AlignCenter)
             self.show_sim_label_list[i].setAlignment(QtCore.Qt.AlignCenter)            
-        # 设置 frame 边框显示
-        if search_style == "静态检索":
-            for i in range(10):                               
-                if str(result_pids[i]) == pids:
-                    self.show_frame_border(i, show_border=True) 
-                else:
-                    self.show_frame_border(i, show_border=False)                                   
-        else:
-            for i in range(10):
-                self.show_frame_border(i, show_border=False) 
+        # 设置 frame 边框显示   
+        for i in range(5):
+            self.show_frame_border(i, show_border=False) 
 
     def update_progress_bar(self, i, N):
         value = int(i / N * 100)
         # 更新进度条
         self.progressBar.setValue(value)
-    
-    def show_gt_and_pid(self, search_style):
-        current_file_path = os.path.abspath(os.path.dirname(__file__))
-        
-        if search_style == "静态检索":
-            # GT 设置 
-            set_gt_flag = self.comboBox_GT.currentText()
-            if set_gt_flag == "无 GT":                
-                self.static_gt_image_path = os.path.join(current_file_path, "ui_data/ui_no_gt.jpg")                                              
-            elif set_gt_flag == "加载 GT":
-                gt_image_path = self.lineEdit_GT.text()
-                if os.path.exists(gt_image_path) is False:
-                    # 提示选择数据集
-                    self.terminal_message("Please select true gt data path", is_error=True)
-                    return False
-                # 获取目录下的所有图像文件        
-                image_extensions = ('.jpg', '.jpeg', '.png', '.bmp')        
-                if gt_image_path.lower().endswith(image_extensions):
-                    self.static_gt_image_path = gt_image_path                    
-                else:
-                    self.terminal_message("Please select image file for setting GT", is_error=True)
-                    return False 
-            self.current_search_gt_image_path = self.static_gt_image_path                        
-        elif search_style == "动态检索":
-            # 显示无 GT 图像            
-            self.dynamic_gt_image_path = os.path.join(current_file_path, "ui_data/ui_no_gt.jpg")
-            self.current_search_gt_image_path = self.dynamic_gt_image_path
-        # 显示 gt
-        pixmap = QPixmap(self.current_search_gt_image_path)
-        resized_pixmap = pixmap.scaled(90, 120)                     
-        self.label_show_gt.setPixmap(resized_pixmap) 
-        self.label_show_gt.setScaledContents(True)                                   
-        self.label_show_gt.setAlignment(QtCore.Qt.AlignCenter) 
 
-    def catch_json_result(self, search_style, result_sim, result_imgids_or_pids, result_image_paths, dataset_base_path):
-        self.current_search_json_result["search_style"] = str(search_style)
+    def update_progress_bar_2(self, i, N):
+        value = int(i / N * 100)
+        # 更新进度条
+        self.progressBar_2.setValue(value)
+
+    def catch_json_result(self, result_sim, result_imgids_or_pids, result_image_paths, dataset_base_path):
         self.current_search_json_result["query_text"] = self.textEdit_enter_text_description.toPlainText()        
         self.current_search_json_result["similarity"] = result_sim
         self.current_search_json_result["result_imgids_or_pids"] = result_imgids_or_pids
@@ -639,8 +504,12 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         # 设置标题
         self.label_query_abstract.setText("检索概要总览")
         # 展示 GT 图像
-        gt_image_path = show_search_json_result["gt_image_path"]
-        pixmap = QPixmap(gt_image_path)
+        if os.path.exists(self.gt_image_path) is False:
+            # 提示选择数据集
+            self.terminal_message("Please select true gt data path", is_error=True)
+            self.gt_image_path = os.path.join(current_file_path, "ui_data/ui_no_gt.jpg")
+            # return False
+        pixmap = QPixmap(self.gt_image_path)
         resized_pixmap = pixmap.scaled(90, 120)             
         self.label_show_result_gt_image.setPixmap(resized_pixmap)
         self.label_show_result_gt_image.setScaledContents(True)                            
@@ -668,7 +537,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.label_show_result_sim_label.setAlignment(QtCore.Qt.AlignCenter)
         # 展示检索信息总览
         self.textBrowser_show_result_abstract.clear()
-        self.textBrowser_show_result_abstract.append(f"检索方式: {show_search_json_result['search_style']}")
         self.textBrowser_show_result_abstract.append(f"查询文本: {show_search_json_result['query_text']}")
 
     def show_frame_border(self, i, show_border=False):        
@@ -701,8 +569,8 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             """)
 
     def clean_show_result_before_search(self):
-        # 清空 Top10 结果
-        for i in range(10):
+        # 清空 Top5 结果
+        for i in range(5):
             self.show_images_label_list[i].clear()
             self.show_sim_label_list[i].clear()              
             self.show_frame_border(i, show_border=False)
@@ -718,3 +586,52 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.label_show_result_sim_label.setText("")                
         self.textBrowser_show_result_abstract.clear()
 
+    # def play_video(self, video_path):
+    #     # 使用 FFmpeg 解码视频（OpenCV 使用 FFmpeg）
+    #     cap = cv.VideoCapture(video_path)
+
+    #     if not cap.isOpened():
+    #         print("Error: Could not open video.")
+    #         return
+
+    #     while cap.isOpened():
+    #         ret, frame = cap.read()
+    #         if not ret:
+    #             break
+
+    #         # 将 OpenCV 帧转换为 QImage 格式
+    #         frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+    #         h, w, ch = frame_rgb.shape
+    #         qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
+
+    #         # 将 QImage 显示到 QLabel 上
+    #         self.show_video.setPixmap(QPixmap.fromImage(qimage))
+    #         QApplication.processEvents()  # 更新界面，避免卡死
+
+    #     cap.release()
+
+    def play_video(self, video_path):
+        # 使用 FFmpeg 解码视频（OpenCV 使用 FFmpeg）
+        self.cap = cv.VideoCapture(video_path)
+
+        if not self.cap.isOpened():
+            print("Error: Could not open video.")
+            return
+
+        # 播放视频
+        self.is_playing = True
+        while self.cap.isOpened() and self.is_playing:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+
+            # 将 OpenCV 帧转换为 QImage 格式
+            frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+            h, w, ch = frame_rgb.shape
+            qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
+
+            # 将 QImage 显示到 QLabel 上
+            self.show_video.setPixmap(QPixmap.fromImage(qimage))
+            QApplication.processEvents()  # 更新界面，避免卡死
+
+        self.cap.release()
