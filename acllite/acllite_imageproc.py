@@ -6,11 +6,11 @@ MODIFIED: 2021-01-29 14:04:45
 """
 import numpy as np
 import acl
-import acllite_utils as utils
-from acllite_image import AclLiteImage
-from acllite_logger import log_error, log_info
-from acllite_resource import resource_list
-import constants as constants
+import acllite.acllite_utils as utils
+from acllite.acllite_image import AclLiteImage
+from acllite.acllite_logger import log_error, log_info
+from acllite.acllite_resource import resource_list
+import acllite.constants as constants
 
 class AclLiteImageProc(object):
     """

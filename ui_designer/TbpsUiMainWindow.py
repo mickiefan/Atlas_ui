@@ -11,6 +11,10 @@ os.environ["QT_GSTREAMER_PLAYBIN_VIDEOSRC"] = "autovideosrc"
 os.environ["QT_GSTREAMER_PLAYBIN"] = "ffmpeg"
 import shutil
 import sys
+import numpy as np
+import cv2 as cv
+import time
+from PIL import Image
 # 通过当前文件目录的相对路径设置工程的根目录
 current_file_path = os.path.abspath(os.path.dirname(__file__))
 project_base_path = os.path.abspath(os.path.join(current_file_path, "../"))
@@ -19,21 +23,33 @@ sys.path.append(project_base_path)
 from deploy.deploy_tbps import tokenize, transfer_pic, net
 from deploy.simple_tokenizer import SimpleTokenizer
 from deploy.deploy_detection import detection_net
+from deploy.progress import post_process, deal_result, yuv420sp_to_rgb, MODEL_HEIGHT, MODEL_WIDTH
 from config import DEVICE_IS_ATLAS
 
-import numpy as np
-import cv2 as cv
 from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtCore import QUrl, QTimer
+from PyQt5.QtCore import QTimer, QThread
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtWidgets import QMainWindow,QFileDialog, QLabel, QApplication
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+from PyQt5.QtWidgets import QMainWindow,QFileDialog, QApplication
 from .Ui_tbps import Ui_MainWindow 
 from acllite.acllite_model import AclLiteModel
+import acllite.videocapture as video
+
+class VideoThread(QThread):
+    def __init__(self, window, video_input_path, video_output_path, cropped_img_path, parent=None):
+        super(VideoThread, self).__init__(parent)
+        self.window = window  # 存储 MyMainWindow 实例
+        self.video_input_path = video_input_path
+        self.video_output_path = video_output_path
+        self.cropped_img_path = cropped_img_path
+
+    def run(self):
+        # 运行你的行人检测方法
+        self.window.detection_pedestrian(self.video_input_path, self.video_output_path, self.cropped_img_path)
 
 class MyMainWindow(QMainWindow,Ui_MainWindow):
     def __init__(self,parent =None):
         super(MyMainWindow,self).__init__(parent)
+        self.video_thread = None  # 存储线程，避免局部变量被销毁
         self.setupUi(self)
         # 设置执行平台
         self.is_atlas = DEVICE_IS_ATLAS
@@ -44,15 +60,13 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             self.tokenizer = SimpleTokenizer(bpe_path)
             self.text_encoder = net(os.path.join(project_base_path, "deploy/model/xsmall_text_encode_310B4.om")) 
             self.consine_sim_model = net(os.path.join(project_base_path, "deploy/model/similarity_310B4.om")) 
-            self.detection_model = AclLiteModel(os.path.join(project_base_path, "deploy/model/yolov4_bs1.om"))  # 行人检测模型
-            self.detection_net = detection_net()
+            self.detection_model = AclLiteModel(os.path.join(project_base_path, "deploy/model/yolov4_bs1_aipp.om"))  # 行人检测模型
         else:
             self.image_encoder = None
             self.tokenizer = None
             self.text_encoder = None
             self.consine_sim_model = None
             self.detection_model = None
-            self.detection_net = None
 
         # GT显示相关变量
         self.gt_image_path = ""
@@ -104,8 +118,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             del self.consine_sim_model
         if self.detection_model is not None:
             del self.detection_model
-        if self.detection_net is not None:
-            del self.detection_net
 
     # ************************ slot functions ************************ #
     def slot_select_video(self):        
@@ -129,11 +141,19 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             # 提示选择视频
             self.terminal_message("Please select video!!", is_error=True)
             return False
-        if video_input_path.lower().endswith('.mp4') is False:
-            # 提示选择.mp4文件
-            self.terminal_message("Please select '*.mp4' file!!", is_error=True)
+        if video_input_path.lower().endswith('.h264') is False:
+            # 提示选择.h264文件
+            self.terminal_message("Please select '*.h264' file!!", is_error=True)
             return False  
-        self.detection_pedestrian(video_input_path, video_output_path, cropped_img_path)
+
+        # 确保旧线程结束
+        if self.video_thread and self.video_thread.isRunning():
+            self.video_thread.quit()
+            self.video_thread.wait()
+
+        # 创建新的线程 
+        self.video_thread = VideoThread(self, video_input_path, video_output_path, cropped_img_path)
+        self.video_thread.window.detection_pedestrian(video_input_path, video_output_path, cropped_img_path)
 
     def slot_select_gt(self):        
         # 设置基础路径
@@ -198,20 +218,15 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
         h, w, ch = frame_rgb.shape
         qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
-
         # 将第一帧显示在界面上，并且缩小显示，保持比例
         pixmap = QPixmap.fromImage(qimage)
-
         # 获取 QLabel 当前的尺寸，计算缩放比例
         label_width = self.show_video.width()
         label_height = self.show_video.height()
-        
         # 计算缩放比例
         scale_factor = min(label_width / w, label_height / h)
-
         # 使用缩放比例调整图片大小
         scaled_pixmap = pixmap.scaled(w * scale_factor, h * scale_factor)
-
         # 将缩放后的图片显示到界面
         self.show_video.setPixmap(scaled_pixmap)
 
@@ -232,20 +247,15 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
                 frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
                 h, w, ch = frame_rgb.shape
                 qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
-
                 # 将当前帧显示到界面上，并且缩小显示，保持比例
                 pixmap = QPixmap.fromImage(qimage)
-
                 # 获取 QLabel 当前的尺寸，计算缩放比例
                 label_width = self.show_video.width()
                 label_height = self.show_video.height()
-
                 # 计算缩放比例
                 scale_factor = min(label_width / w, label_height / h)
-
                 # 使用缩放比例调整图片大小
                 scaled_pixmap = pixmap.scaled(w * scale_factor, h * scale_factor)
-
                 # 将缩放后的图片显示到界面
                 self.show_video.setPixmap(scaled_pixmap)
             else:
@@ -255,19 +265,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
     # ************************ deploy functions ************************ #
     def detection_pedestrian(self, video_input_path, video_output_path, cropped_img_path):
         self.terminal_message("=========== Start Detection ===========")
-        frame_count = 0
-        # 打开视频
-        video_path = video_input_path
-        self.terminal_message("open video: ")
-        self.terminal_message(video_path)
-        cap = cv.VideoCapture(video_path)
-        fps = cap.get(cv.CAP_PROP_FPS)
-        Width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
-        Height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
-
-        # 获取总帧数
-        total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
-        total_bar = total_frames + 10  # 进度条的总进度，增加10表示包括后续其他步骤
 
         # 删除输出目录
         if os.path.exists(video_output_path):
@@ -282,49 +279,64 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         # 创建裁剪图像目录
         if not os.path.exists(cropped_img_path):
             os.mkdir(cropped_img_path)
-        output_Video = os.path.basename(video_path)
-        output_Video = os.path.join(video_output_path, output_Video)
 
-        fourcc = cv.VideoWriter_fourcc(*'mp4v')  # 视频编码方式
-        outVideo = cv.VideoWriter(output_Video, fourcc, fps, (Width, Height))
+        # 打开视频
+        self.terminal_message("open video: ")
+        self.terminal_message(video_input_path)
+        # 视频输出设置
+        out_Video =os.path.join(video_output_path, "out_video.mp4")
+        fps = 30
+        fourcc = cv.VideoWriter_fourcc(*"mp4v")
+        outVideo = cv.VideoWriter(out_Video, fourcc, fps, (1280, 720))
 
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (0, 255, 255), (255, 0, 255), (255, 255, 0)]
+        # 记录总执行时间
+        start_time = time.time()
 
-        # 读取视频直到完成
-        while (cap.isOpened()):
-            ret, frame = cap.read()
-            if ret == True:
-                # 预处理
-                data, orig = self.detection_net.preprocess(frame)
-                # 发送到模型推理
-                result_list = self.detection_model.execute([data,])
-                # 处理推理结果
-                result_return = self.detection_net.post_process(frame_count, result_list, orig, cropped_img_path)
-                # print("result = ", result_return)
+        # 视频流输入处理
+        cap = video.VideoCapture(video_input_path)
+        total_frames = cap._total_frames
 
-                for i in range(len(result_return['detection_classes'])):
-                    box = result_return['detection_boxes'][i]
-                    class_name = result_return['detection_classes'][i]
+        # 读取所有视频帧并存入列表
+        frame_count = 0
+        while True:
+            ret, image = cap.read()
+            if image == None:
+                print("Read None image, break")
+                break
+            else:
+                # 图像处理
+                yuv_data = image.byte_data_to_np_array()
+                rgb_image_numpy = yuv420sp_to_rgb(yuv_data, MODEL_WIDTH, MODEL_HEIGHT)
+                rgb_image = Image.fromarray(rgb_image_numpy)
 
-                    cv.rectangle(frame, (int(box[1]), int(box[0])), (int(box[3]), int(box[2])), colors[i % 6])
-                    p3 = (max(int(box[1]), 15), max(int(box[0]), 15))
-                    out_label = class_name
-                    cv.putText(frame, out_label, p3, cv.FONT_ITALIC, 0.6, colors[i % 6], 1)
+                # 模型推理
+                result_list = self.detection_model.execute([image,])
+                return_list = post_process(result_list, rgb_image, cropped_img_path, frame_count)
 
-                outVideo.write(frame)
-                # print("FINISH PROCESSING FRAME: ", frame_count)
-                
+                if return_list is None:
+                    print("Execute model failed")
+                    continue
+                print(return_list)
+
+                # 视频流写入设置
+                image_with_boxs = deal_result(return_list, rgb_image_numpy) # 给图像加上检测框 
+                image_with_boxs_np = np.array(image_with_boxs)  # Convert PIL to numpy
+                image_with_boxs_bgr = cv.cvtColor(image_with_boxs_np, cv.COLOR_RGB2BGR)  # Convert RGB to BGR
+                # image_resize = cv.resize(image_with_boxs_bgr, (1280, 720), interpolation=cv.INTER_LINEAR)
+                outVideo.write(image_with_boxs_bgr)
+
                 # 更新进度条
-                self.update_progress_bar_2(frame_count, total_bar)
+                self.update_progress_bar_2(frame_count, total_frames)
 
                 frame_count += 1
-                # print('\n\n\n')
-            else:
-                break
         
-        self.update_progress_bar_2(total_bar, total_bar)
+        # 更新进度条
+        self.update_progress_bar_2(total_frames, total_frames)
 
-        cap.release()
+        # 记录总执行时间
+        end_time = time.time()
+        self.terminal_message(f"Total execution time: {end_time - start_time:.4f} seconds")
+
         outVideo.release()
         self.terminal_message("Pedestrains Detection Finished")
 
@@ -585,30 +597,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.label_show_result_top1_label.setText("")                                    
         self.label_show_result_sim_label.setText("")                
         self.textBrowser_show_result_abstract.clear()
-
-    # def play_video(self, video_path):
-    #     # 使用 FFmpeg 解码视频（OpenCV 使用 FFmpeg）
-    #     cap = cv.VideoCapture(video_path)
-
-    #     if not cap.isOpened():
-    #         print("Error: Could not open video.")
-    #         return
-
-    #     while cap.isOpened():
-    #         ret, frame = cap.read()
-    #         if not ret:
-    #             break
-
-    #         # 将 OpenCV 帧转换为 QImage 格式
-    #         frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-    #         h, w, ch = frame_rgb.shape
-    #         qimage = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
-
-    #         # 将 QImage 显示到 QLabel 上
-    #         self.show_video.setPixmap(QPixmap.fromImage(qimage))
-    #         QApplication.processEvents()  # 更新界面，避免卡死
-
-    #     cap.release()
 
     def play_video(self, video_path):
         # 使用 FFmpeg 解码视频（OpenCV 使用 FFmpeg）

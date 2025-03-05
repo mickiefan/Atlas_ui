@@ -1241,7 +1241,7 @@ p, li { white-space: pre-wrap; }
                  <rect>
                   <x>-10</x>
                   <y>40</y>
-                  <width>411</width>
+                  <width>451</width>
                   <height>211</height>
                  </rect>
                 </property>
@@ -1346,9 +1346,9 @@ p, li { white-space: pre-wrap; }
              <widget class="QFrame" name="frame_28">
               <property name="geometry">
                <rect>
-                <x>430</x>
+                <x>440</x>
                 <y>50</y>
-                <width>321</width>
+                <width>311</width>
                 <height>260</height>
                </rect>
               </property>

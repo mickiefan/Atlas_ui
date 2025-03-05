@@ -9,9 +9,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
 from lib.acllite_so import libacllite
-import constants as const
-from acllite_image import AclLiteImage
-from acllite_logger import log_error, log_info
+import acllite.constants as const
+from acllite.acllite_image import AclLiteImage
+from acllite.acllite_logger import log_error, log_info
 
 CAMERA_OK = 0
 CAMERA_ERROR = 1

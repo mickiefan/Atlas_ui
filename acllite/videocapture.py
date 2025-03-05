@@ -4,11 +4,11 @@ import numpy as np
 import acl
 import time
 
-import constants as const
-import acllite_utils as utils
-import acllite_logger as acl_log
-import dvpp_vdec as dvpp_vdec
-from acllite_image import AclLiteImage
+import acllite.constants as const
+import acllite.acllite_utils as utils
+import acllite.acllite_logger as acl_log
+import acllite.dvpp_vdec as dvpp_vdec
+from acllite.acllite_image import AclLiteImage
 
 WAIT_INTERVAL = 0.01
 WAIT_READY_MAX = 10
@@ -90,6 +90,7 @@ class VideoCapture(object):
         self._is_opened = False
         self._width = 0
         self._height = 0
+        self._total_frames = 0
         self._decode_thread_id = None
         self._dextory_dvpp_flag = False
         self._ctx, ret = acl.rt.get_context()
@@ -160,6 +161,14 @@ class VideoCapture(object):
 
         self._width = video_context.width
         self._height = video_context.height
+        self._total_frames = stream[0].frames  # 添加这一行
+        if self._total_frames == 0:
+            # 如果总帧数为 0，遍历视频流计算总帧数
+            acl_log.log_info("Total frames is 0, calculating total frames by traversing the stream...")
+            self._total_frames = 0
+            for packet in container.demux(stream[0]):
+                self._total_frames += 1
+            acl_log.log_info(f"Calculated total frames: {self._total_frames}")
 
         acl_log.log_info(
             "Get %s infomation: width %d, height %d, profile %d, "
