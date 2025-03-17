@@ -153,7 +153,7 @@ def post_process(infer_output, rgb_image, OUTPUT_DIR, frame_count):
     all_boxes = [[] for ix in range(class_number)]
     for ix in range(3):    
         pred = infer_output[ix]
-        print('pred.shape', pred.shape)
+        # print('pred.shape', pred.shape)
         anchors = anchor_list[ix]
         boxes = decode_bbox(pred, anchors, img_w, img_h, x_scale, y_scale, shift_x_ratio, shift_y_ratio)
         all_boxes = [all_boxes[iy] + boxes[iy] for iy in range(class_number)]

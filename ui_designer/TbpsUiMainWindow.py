@@ -22,7 +22,6 @@ sys.path.append(project_base_path)
 
 from deploy.deploy_tbps import tokenize, transfer_pic, net
 from deploy.simple_tokenizer import SimpleTokenizer
-from deploy.deploy_detection import detection_net
 from deploy.progress import post_process, deal_result, yuv420sp_to_rgb, MODEL_HEIGHT, MODEL_WIDTH
 from config import DEVICE_IS_ATLAS
 
@@ -77,7 +76,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.static_gt_image_path = ""
         self.dynamic_gt_image_path = ""
         self.current_search_gt_image_path = ""
-        self.set_pid = "none"
 
         # 动态检索相关变量
         self.dynamic_database_base_path = "" # 所选数据集文件夹的父目录，用于构建图像完整路径
@@ -86,7 +84,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.dynamic_image_features = None
         
         # 显示相关变量
-        self.show_result_frame_list = [self.frame_show_result1, self.frame_show_result2, self.frame_show_result3, self.frame_show_result4, self.frame_show_result5]
         self.show_images_label_list = [self.label_show_img1, self.label_show_img2, self.label_show_img3, self.label_show_img4, self.label_show_img5]
         self.show_sim_label_list = [self.label_show_sim1, self.label_show_sim2, self.label_show_sim3, self.label_show_sim4, self.label_show_sim5]
 
@@ -125,7 +122,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         # 设置基础路径
         current_file_path = os.path.abspath(os.path.dirname(__file__))
         project_base_path = os.path.abspath(os.path.join(current_file_path, "../data"))
-        # print(project_base_path)
         # 打开文件选择对话框
         static_database_file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文件', project_base_path)
         if static_database_file_path:
@@ -198,7 +194,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
 
     def slot_open_video_file(self):
         # 打开文件选择对话框
-        # video_path, _ = QFileDialog.getOpenFileName(self, "选择视频文件", "", "视频文件 (*.mp4 *.avi *.mkv)")
         current_file_path = os.path.abspath(os.path.dirname(__file__))
         project_base_path = os.path.abspath(os.path.join(current_file_path, "../video_out"))
         video_path, _ = QFileDialog.getOpenFileName(None, '选择文件', project_base_path)
@@ -287,7 +282,7 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         out_Video =os.path.join(video_output_path, "out_video.mp4")
         fps = 30
         fourcc = cv.VideoWriter_fourcc(*"mp4v")
-        outVideo = cv.VideoWriter(out_Video, fourcc, fps, (1280, 720))
+        outVideo = cv.VideoWriter(out_Video, fourcc, fps, (608, 608))
 
         # 记录总执行时间
         start_time = time.time()
@@ -413,7 +408,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         # 5. 返回 Top5 的相似度值和对应的图像路径
         show_images_path =  [os.path.join(dataset_base_path, database_image_files[i]) for i in top5_indices]
         # 6. 设置保存动态图像特征文件名称
-        # self.lineEdit_dynamic_to_static_name.setText(f"{self.dynamic_dataset_folder_name}_test_data.npy")
         self.update_progress_bar(total_bar, total_bar)
         return top5_values, top5_indices, show_images_path, dataset_base_path
 
@@ -471,8 +465,8 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         result_sim = show_search_json_result["similarity"]
         result_image_paths = show_search_json_result["image_paths"]
         dataset_base_path = show_search_json_result["dataset_base_path"]
-        result_pids = show_search_json_result["result_imgids_or_pids"]
-        pids = show_search_json_result["set_pid"]           
+        # result_pids = show_search_json_result["result_imgids_or_pids"]
+        # pids = show_search_json_result["set_pid"]           
         # 展示 Top5 图像及相似度
         for i in range(5):
             image_path = os.path.join(dataset_base_path, result_image_paths[i])
@@ -504,7 +498,7 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         self.current_search_json_result["image_paths"] = result_image_paths
         self.current_search_json_result["dataset_base_path"] = dataset_base_path
         self.current_search_json_result["gt_image_path"] = self.current_search_gt_image_path
-        self.current_search_json_result["set_pid"] = self.set_pid
+        # self.current_search_json_result["set_pid"] = self.set_pid
 
     def show_search_result_abstract(self, show_search_json_result={}):        
         
@@ -512,7 +506,6 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             return
         
         # 设置背景颜色                
-        self.frame_query_abstract.setStyleSheet("background-color: rgb(215, 227, 243);")
         # 设置标题
         self.label_query_abstract.setText("检索概要总览")
         # 展示 GT 图像
@@ -529,16 +522,17 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
         # 居中展示 GT 标签            
         self.label_show_result_gt_label.setText("GT")            
         self.label_show_result_gt_label.setAlignment(QtCore.Qt.AlignCenter)
-        # 居中展示 PID 标签  
-        pids = show_search_json_result["set_pid"]          
-        self.label_show_result_PID_label.setText("PID: " + pids)            
-        self.label_show_result_PID_label.setAlignment(QtCore.Qt.AlignCenter)
+        # # 居中展示 PID 标签  
+        # pids = show_search_json_result["set_pid"]          
+        # self.label_show_result_PID_label.setText("PID: " + pids)            
+        # self.label_show_result_PID_label.setAlignment(QtCore.Qt.AlignCenter)
         # 展示 Top1 结果
         top1_image_path = os.path.join(show_search_json_result["dataset_base_path"], 
                                         show_search_json_result["image_paths"][0])
         pixmap = QPixmap(top1_image_path)
         resized_pixmap = pixmap.scaled(90, 120)
         self.label_show_result_top1_image.setPixmap(resized_pixmap)
+        self.label_show_result_top1_image.setScaledContents(True)
         self.label_show_result_top1_image.setAlignment(QtCore.Qt.AlignCenter)
         # 居中展示 Top1 标签            
         self.label_show_result_top1_label.setText("Top 1")            
@@ -554,12 +548,12 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
     def show_frame_border(self, i, show_border=False):        
         if show_border:
             border_style = "2px solid rgb(255, 0, 0)"
-            self.show_result_frame_list[i].setStyleSheet(f"""
-                QFrame {{
-                    border: {border_style};
-                    background-color: transparent;
-                }}
-            """)
+            # self.show_result_frame_list[i].setStyleSheet(f"""
+            #     QFrame {{
+            #         border: {border_style};
+            #         background-color: transparent;
+            #     }}
+            # """)
             self.show_images_label_list[i].setStyleSheet("""
                 QFrame {
                     border: none;
@@ -573,12 +567,13 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
                 }
             """)
         else:
-            self.show_result_frame_list[i].setStyleSheet("""
-                QFrame {
-                    border: none;
-                    background-color: transparent;
-                }
-            """)
+            print("down")
+            # self.show_result_frame_list[i].setStyleSheet("""
+            #     QFrame {
+            #         border: none;
+            #         background-color: transparent;
+            #     }
+            # """)
 
     def clean_show_result_before_search(self):
         # 清空 Top5 结果
@@ -588,7 +583,7 @@ class MyMainWindow(QMainWindow,Ui_MainWindow):
             self.show_frame_border(i, show_border=False)
                                 
         # 清空检索概要总览  
-        self.frame_query_abstract.setStyleSheet("background-color: rgb(226, 239, 255);")      
+        # self.frame_query_abstract.setStyleSheet("background-color: rgba(125, 125, 125, 150);")      
         self.label_query_abstract.setText("")                          
         self.label_show_result_gt_image.clear()
         self.label_show_result_gt_label.setText("")                            

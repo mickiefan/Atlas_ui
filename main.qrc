@@ -1,0 +1,8 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<qresource prefix="/">
+    <file>./ui_designer/ui_data/background_1.jpeg</file>
+    <file>./ui_designer/ui_data/background.jpeg</file>
+    <file>./ui_designer/ui_data/logo.jpeg</file>
+</qresource>
+</RCC>

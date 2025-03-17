@@ -6,6 +6,7 @@ LastEditTime: 2025-01-07 10:29:08
 Description: Atlas200_tbps_ui
 '''
 import sys
+import background
 from PyQt5.QtWidgets import QApplication
 from ui_designer.TbpsUiMainWindow import MyMainWindow 
 
